@@ -13,11 +13,13 @@ func Test_DeriveServerName(t *testing.T) {
 		binaryPath string
 		want       string
 	}{
-		{"strip mcp suffix", "/usr/local/bin/rest-api-mcp", "rest-api"},
-		{"strip exe and mcp", `C:\bin\rest-api-mcp.exe`, "rest-api"},
-		{"no mcp suffix", "/usr/local/bin/myserver", "myserver"},
-		{"only exe suffix", `C:\bin\myserver.exe`, "myserver"},
-		{"codeindex-mcp", "/bin/codeindex-mcp", "codeindex"},
+		{"strip mcp suffix", filepath.Join("/usr", "local", "bin", "rest-api-mcp"), "rest-api"},
+		{"strip exe and mcp", filepath.Join("C:", "bin", "rest-api-mcp.exe"), "rest-api"},
+		{"no mcp suffix", filepath.Join("/usr", "local", "bin", "myserver"), "myserver"},
+		{"only exe suffix", filepath.Join("C:", "bin", "myserver.exe"), "myserver"},
+		{"codeindex-mcp", filepath.Join("/bin", "codeindex-mcp"), "codeindex"},
+		{"bare name", "rest-api-mcp", "rest-api"},
+		{"bare name with exe", "rest-api-mcp.exe", "rest-api"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
