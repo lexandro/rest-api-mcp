@@ -6,22 +6,6 @@ A lightweight MCP (Model Context Protocol) server that provides a structured `ht
 
 AI agents (like Claude Code) frequently need to make HTTP requests during API development. Using `curl` via Bash is unreliable on Windows — quoting JSON bodies, escaping special characters, and handling headers all break differently across shells. This MCP server provides a single, structured `http_request` tool that works identically on all platforms.
 
-## Installation
-
-### Download binary
-
-Pre-built binaries for Windows, macOS, and Linux are available on the [Releases](https://github.com/lexandro/rest-api-mcp/releases) page.
-
-### Build from source
-
-Requires Go 1.22+.
-
-```bash
-git clone https://github.com/lexandro/rest-api-mcp.git
-cd rest-api-mcp
-go build -o rest-api-mcp.exe .
-```
-
 ## Quick Start
 
 ### Register in Claude Code
@@ -96,6 +80,22 @@ You can also edit the config files directly. The `register` command generates en
 ```
 
 </details>
+
+## Installation
+
+### Download binary
+
+Pre-built binaries for Windows, macOS, and Linux are available on the [Releases](https://github.com/lexandro/rest-api-mcp/releases) page.
+
+### Build from source
+
+Requires Go 1.22+.
+
+```bash
+git clone https://github.com/lexandro/rest-api-mcp.git
+cd rest-api-mcp
+go build -o rest-api-mcp.exe .
+```
 
 ## CLI Flags
 
