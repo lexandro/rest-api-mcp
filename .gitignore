@@ -1,0 +1,21 @@
+# Binary
+rest-api-mcp.exe
+rest-api-mcp.exe~
+rest-api-mcp
+
+# Log
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local scripts
+build.bat
+clau.bat
+
+# OS
+.DS_Store
+Thumbs.db
