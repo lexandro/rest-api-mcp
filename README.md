@@ -8,7 +8,13 @@ AI agents (like Claude Code) frequently need to make HTTP requests during API de
 
 ## Installation
 
+### Download binary
+
+Pre-built binaries for Windows, macOS, and Linux are available on the [Releases](https://github.com/lexandro/rest-api-mcp/releases) page.
+
 ### Build from source
+
+Requires Go 1.22+.
 
 ```bash
 git clone https://github.com/lexandro/rest-api-mcp.git
@@ -16,28 +22,80 @@ cd rest-api-mcp
 go build -o rest-api-mcp.exe .
 ```
 
-### Download binary
+## Quick Start
 
-Pre-built binaries are available on the [Releases](https://github.com/lexandro/rest-api-mcp/releases) page.
+### Register in Claude Code
 
-## MCP Configuration
+The `register` subcommand automatically adds the server to Claude Code's config — no manual JSON editing needed.
 
-Add to your MCP config (e.g., `~/.claude/mcp.json` or `.mcp.json`):
+```bash
+# Register for current project (creates .mcp.json)
+rest-api-mcp register project
+
+# Register with a base URL for API development
+rest-api-mcp register project . -- --base-url http://localhost:8080
+
+# Register globally for all projects (writes to ~/.claude.json)
+rest-api-mcp register user
+```
+
+Arguments after `--` are forwarded to the MCP server on every startup.
+
+### More examples
+
+```bash
+# Authenticated API with default headers
+rest-api-mcp register project . -- \
+  --base-url https://api.example.com \
+  --default-header "Authorization: Bearer YOUR_TOKEN_HERE" \
+  --default-header "Content-Type: application/json"
+
+# Corporate proxy / self-signed certs
+rest-api-mcp register project . -- \
+  --base-url https://internal-api.corp.local \
+  --proxy http://proxy.corp.local:8080 \
+  --insecure
+```
+
+### Manual configuration
+
+You can also edit the config files directly. The `register` command generates entries like this in `.mcp.json` or `~/.claude.json`:
 
 ```json
 {
   "mcpServers": {
     "rest-api": {
-      "command": "C:\\path\\to\\rest-api-mcp.exe",
+      "command": "/path/to/rest-api-mcp",
+      "args": ["--base-url", "http://localhost:8080"]
+    }
+  }
+}
+```
+
+<details>
+<summary>Full configuration example with all options</summary>
+
+```json
+{
+  "mcpServers": {
+    "rest-api": {
+      "command": "/path/to/rest-api-mcp",
       "args": [
-        "--base-url", "http://localhost:8080",
-        "--default-header", "Authorization: Bearer ${API_TOKEN}",
-        "--default-header", "Content-Type: application/json"
+        "--base-url", "http://localhost:3000",
+        "--default-header", "Authorization: Bearer YOUR_TOKEN_HERE",
+        "--default-header", "Content-Type: application/json",
+        "--default-header", "Accept: application/json",
+        "--timeout", "15s",
+        "--max-response-size", "102400",
+        "--retry", "2",
+        "--retry-delay", "500ms"
       ]
     }
   }
 }
 ```
+
+</details>
 
 ## CLI Flags
 
@@ -46,14 +104,11 @@ Add to your MCP config (e.g., `~/.claude/mcp.json` or `.mcp.json`):
 | `--base-url` | _(none)_ | Base URL prepended to relative paths |
 | `--default-header` | _(none)_ | Default header (repeatable), format: `Key: Value` |
 | `--timeout` | `30s` | Default request timeout |
-| `--max-response-size` | `50KB` | Maximum response body size before truncation |
+| `--max-response-size` | `51200` | Maximum response body size in bytes (default 50KB) |
 | `--proxy` | _(none)_ | HTTP/HTTPS proxy URL |
 | `--retry` | `0` | Number of retry attempts for failed requests |
-| `--retry-delay` | `1000ms` | Delay between retries |
+| `--retry-delay` | `1s` | Delay between retries |
 | `--insecure` | `false` | Skip TLS certificate verification |
-| `--log-enabled` | `false` | Enable request/response logging |
-| `--log-file` | _(none)_ | Log file path (stderr if not set) |
-| `--log-level` | `info` | Log level: debug, info, warn, error |
 
 ## Tool: `http_request`
 
@@ -68,13 +123,13 @@ A single, versatile tool for making HTTP requests.
 | `headers` | object | no | Request headers as key-value pairs |
 | `body` | string | no | Request body (typically JSON) |
 | `queryParams` | object | no | Query parameters as key-value pairs |
-| `timeout` | string | no | Per-request timeout override (e.g., "10s", "500ms") |
+| `timeout` | string | no | Per-request timeout override (e.g., `10s`, `500ms`) |
 | `followRedirects` | boolean | no | Follow HTTP redirects (default: true) |
 | `includeResponseHeaders` | boolean | no | Include response headers in output (default: false) |
 
 ### Response Format
 
-Compact, token-efficient output:
+Compact, token-efficient output designed to minimize context window usage:
 
 ```
 HTTP 200 OK (154ms)
@@ -96,37 +151,84 @@ X-Request-Id: abc123
 Large responses are automatically truncated:
 
 ```
-HTTP 200 OK (1204ms)
+HTTP 200 OK (1.2s)
 
 {"data": [...first 50KB...]}
 [truncated, showing 51200 of 245891 bytes]
 ```
 
+### Token Efficiency
+
+- **No response headers by default** — saves ~200-500 tokens per request
+- **50KB response limit** — prevents dumping huge payloads into context
+- **Compact status line** — `HTTP 200 OK (154ms)` instead of verbose curl output
+- **No request echo** — the agent already knows what it sent
+- **Error as text** — `Request failed: connection refused` not a stack trace
+
 ## Examples
 
 ### Simple GET
-```
-Use the http_request tool:
-- method: GET
-- url: /api/users
+```json
+{ "method": "GET", "url": "/api/users" }
 ```
 
 ### POST with JSON body
-```
-Use the http_request tool:
-- method: POST
-- url: /api/users
-- headers: {"Content-Type": "application/json"}
-- body: {"name": "John", "email": "john@example.com"}
+```json
+{
+  "method": "POST",
+  "url": "/api/users",
+  "headers": { "Content-Type": "application/json" },
+  "body": "{\"name\": \"John\", \"email\": \"john@example.com\"}"
+}
 ```
 
-### PUT with query parameters
+### GET with query parameters
+```json
+{
+  "method": "GET",
+  "url": "/api/search",
+  "queryParams": { "q": "hello", "limit": "10" }
+}
 ```
-Use the http_request tool:
-- method: PUT
-- url: /api/users/123
-- queryParams: {"fields": "name,email"}
-- body: {"name": "Updated Name"}
+
+### PUT with timeout override
+```json
+{
+  "method": "PUT",
+  "url": "/api/users/123",
+  "body": "{\"name\": \"Updated\"}",
+  "timeout": "5s"
+}
+```
+
+### GET without following redirects
+```json
+{
+  "method": "GET",
+  "url": "/api/short-link",
+  "followRedirects": false,
+  "includeResponseHeaders": true
+}
+```
+
+## Development
+
+### Build
+
+```bash
+go build -o rest-api-mcp.exe .
+```
+
+### Test
+
+```bash
+go test ./...
+```
+
+### Vet
+
+```bash
+go vet ./...
 ```
 
 ## License

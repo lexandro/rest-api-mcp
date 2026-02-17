@@ -14,10 +14,11 @@ MCP server providing a structured HTTP request tool for AI agents. Replaces frag
 - Run: `./rest-api-mcp.exe --base-url http://localhost:8080`
 
 ## Architecture
-- `main.go` - Entry point, CLI flag parsing, component wiring
+- `main.go` - Entry point, CLI flag parsing, subcommand dispatch, component wiring
 - `client/` - HTTP client wrapper (retry, proxy, TLS, default headers, timeout)
 - `server/` - MCP server setup, tool registration (stdio transport)
 - `tools/` - MCP tool handler for `http_request` + response formatting
+- `register/` - `register` subcommand for auto-registering in Claude Code config
 
 ## AI-Optimized Coding Principles
 

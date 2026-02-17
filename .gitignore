@@ -16,6 +16,9 @@ rest-api-mcp
 build.bat
 clau.bat
 
+# MCP config (local paths, tokens)
+.mcp.json
+
 # OS
 .DS_Store
 Thumbs.db
