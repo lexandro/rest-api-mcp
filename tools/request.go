@@ -37,10 +37,10 @@ func Register(mcpServer *mcp.Server, httpClient *client.Client, cfg client.Confi
 
 // sensitiveHeaderNames contains lowercase header names whose values must be censored in the tool description.
 var sensitiveHeaderNames = map[string]bool{
-	"authorization": true,
+	"authorization":       true,
 	"proxy-authorization": true,
-	"x-api-key": true,
-	"x-auth-token": true,
+	"x-api-key":           true,
+	"x-auth-token":        true,
 }
 
 func censorHeaderValue(name, value string) string {

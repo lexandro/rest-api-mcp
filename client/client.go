@@ -98,16 +98,16 @@ func NewClient(config Config) *Client {
 	}
 }
 
-func (c *Client) ExecuteRequest(ctx context.Context, params RequestParams) (*Response, error) {
+func buildRequestURL(baseURL string, params RequestParams) (string, error) {
 	requestURL := params.URL
-	if strings.HasPrefix(requestURL, "/") && c.baseURL != "" {
-		requestURL = strings.TrimRight(c.baseURL, "/") + requestURL
+	if strings.HasPrefix(requestURL, "/") && baseURL != "" {
+		requestURL = strings.TrimRight(baseURL, "/") + requestURL
 	}
 
 	if len(params.QueryParams) > 0 {
 		parsedURL, err := url.Parse(requestURL)
 		if err != nil {
-			return nil, fmt.Errorf("parsing URL %s: %w", requestURL, err)
+			return "", fmt.Errorf("parsing URL %s: %w", requestURL, err)
 		}
 		query := parsedURL.Query()
 		for key, value := range params.QueryParams {
@@ -115,6 +115,77 @@ func (c *Client) ExecuteRequest(ctx context.Context, params RequestParams) (*Res
 		}
 		parsedURL.RawQuery = query.Encode()
 		requestURL = parsedURL.String()
+	}
+
+	return requestURL, nil
+}
+
+func readResponseBody(resp *http.Response, maxResponseSize int64) ([]byte, bool, int64, error) {
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize+1))
+	resp.Body.Close()
+	if err != nil {
+		return nil, false, 0, fmt.Errorf("reading response body: %w", err)
+	}
+
+	truncated := int64(len(body)) > maxResponseSize
+	var originalSize int64
+	if truncated {
+		originalSize = resp.ContentLength
+		if originalSize <= 0 {
+			originalSize = int64(len(body))
+		}
+		body = body[:maxResponseSize]
+	}
+
+	return body, truncated, originalSize, nil
+}
+
+func (c *Client) doSingleAttempt(ctx context.Context, method, requestURL string, params RequestParams) (*Response, error) {
+	var bodyReader io.Reader
+	if params.Body != "" {
+		bodyReader = strings.NewReader(params.Body)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, requestURL, bodyReader)
+	if err != nil {
+		return nil, fmt.Errorf("creating request %s %s: %w", method, requestURL, err)
+	}
+
+	for key, value := range c.defaultHeaders {
+		req.Header.Set(key, value)
+	}
+	for key, value := range params.Headers {
+		req.Header.Set(key, value)
+	}
+
+	start := time.Now()
+	resp, err := c.httpClient.Do(req)
+	duration := time.Since(start)
+
+	if err != nil {
+		return nil, fmt.Errorf("executing %s %s: %w", method, requestURL, err)
+	}
+
+	body, truncated, originalSize, readErr := readResponseBody(resp, c.maxResponseSize)
+	if readErr != nil {
+		return nil, readErr
+	}
+
+	return &Response{
+		StatusCode:   resp.StatusCode,
+		StatusText:   http.StatusText(resp.StatusCode),
+		Headers:      resp.Header,
+		Body:         body,
+		Duration:     duration,
+		Truncated:    truncated,
+		OriginalSize: originalSize,
+	}, nil
+}
+
+func (c *Client) ExecuteRequest(ctx context.Context, params RequestParams) (*Response, error) {
+	requestURL, err := buildRequestURL(c.baseURL, params)
+	if err != nil {
+		return nil, err
 	}
 
 	requestCtx := ctx
@@ -143,70 +214,20 @@ func (c *Client) ExecuteRequest(ctx context.Context, params RequestParams) (*Res
 			time.Sleep(c.retryDelay)
 		}
 
-		var bodyReader io.Reader
-		if params.Body != "" {
-			bodyReader = strings.NewReader(params.Body)
-		}
-
-		req, err := http.NewRequestWithContext(requestCtx, params.Method, requestURL, bodyReader)
-		if err != nil {
-			return nil, fmt.Errorf("creating request %s %s: %w", params.Method, requestURL, err)
-		}
-
-		for key, value := range c.defaultHeaders {
-			req.Header.Set(key, value)
-		}
-		for key, value := range params.Headers {
-			req.Header.Set(key, value)
-		}
-
-		start := time.Now()
-		resp, err := c.httpClient.Do(req)
-		duration := time.Since(start)
-
-		if err != nil {
-			lastErr = fmt.Errorf("executing %s %s: %w", params.Method, requestURL, err)
+		response, attemptErr := c.doSingleAttempt(requestCtx, params.Method, requestURL, params)
+		if attemptErr != nil {
+			lastErr = attemptErr
 			if attempt < maxAttempts-1 {
 				continue
 			}
 			return nil, lastErr
 		}
 
-		body, readErr := io.ReadAll(io.LimitReader(resp.Body, c.maxResponseSize+1))
-		resp.Body.Close()
-		if readErr != nil {
-			lastErr = fmt.Errorf("reading response body: %w", readErr)
-			if attempt < maxAttempts-1 {
-				continue
-			}
-			return nil, lastErr
-		}
-
-		truncated := int64(len(body)) > c.maxResponseSize
-		var originalSize int64
-		if truncated {
-			originalSize = resp.ContentLength
-			if originalSize <= 0 {
-				originalSize = int64(len(body))
-			}
-			body = body[:c.maxResponseSize]
-		}
-
-		response := &Response{
-			StatusCode:   resp.StatusCode,
-			StatusText:   http.StatusText(resp.StatusCode),
-			Headers:      resp.Header,
-			Body:         body,
-			Duration:     duration,
-			Truncated:    truncated,
-			OriginalSize: originalSize,
-		}
-
-		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+		if response.StatusCode >= 400 && response.StatusCode < 500 {
 			return response, nil
 		}
 
-		if resp.StatusCode >= 500 && attempt < maxAttempts-1 {
+		if response.StatusCode >= 500 && attempt < maxAttempts-1 {
 			lastResponse = response
 			continue
 		}

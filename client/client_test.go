@@ -347,10 +347,10 @@ func Test_ExecuteRequest_NoFollowRedirect(t *testing.T) {
 
 func Test_NewClient_ParseHeaders(t *testing.T) {
 	tests := []struct {
-		name     string
-		raw      []string
-		wantKey  string
-		wantVal  string
+		name    string
+		raw     []string
+		wantKey string
+		wantVal string
 	}{
 		{
 			name:    "simple header",
