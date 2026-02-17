@@ -153,6 +153,93 @@ func Test_HttpRequestHandler_PostWithBody(t *testing.T) {
 	}
 }
 
+func Test_BuildToolDescription_NoConfig(t *testing.T) {
+	desc := buildToolDescription(client.Config{})
+	if !strings.Contains(desc, "Make HTTP requests") {
+		t.Errorf("expected base description, got: %s", desc)
+	}
+	if strings.Contains(desc, "Base URL") {
+		t.Errorf("expected no Base URL section, got: %s", desc)
+	}
+	if strings.Contains(desc, "Default headers") {
+		t.Errorf("expected no Default headers section, got: %s", desc)
+	}
+}
+
+func Test_BuildToolDescription_WithBaseURL(t *testing.T) {
+	desc := buildToolDescription(client.Config{
+		BaseURL: "http://localhost:8080",
+	})
+	if !strings.Contains(desc, "Base URL: http://localhost:8080") {
+		t.Errorf("expected base URL in description, got: %s", desc)
+	}
+	if !strings.Contains(desc, "relative paths") {
+		t.Errorf("expected relative paths hint, got: %s", desc)
+	}
+}
+
+func Test_BuildToolDescription_WithDefaultHeaders(t *testing.T) {
+	desc := buildToolDescription(client.Config{
+		DefaultHeaders: map[string]string{
+			"Content-Type": "application/json",
+			"Accept":       "application/json",
+		},
+	})
+	if !strings.Contains(desc, "Default headers:") {
+		t.Errorf("expected Default headers section, got: %s", desc)
+	}
+	if !strings.Contains(desc, "Content-Type: application/json") {
+		t.Errorf("expected Content-Type header in description, got: %s", desc)
+	}
+	if !strings.Contains(desc, "Accept: application/json") {
+		t.Errorf("expected Accept header in description, got: %s", desc)
+	}
+}
+
+func Test_BuildToolDescription_CensorsSensitiveHeaders(t *testing.T) {
+	desc := buildToolDescription(client.Config{
+		DefaultHeaders: map[string]string{
+			"Authorization": "Bearer secret-token-123",
+			"X-Api-Key":     "sk-my-secret-key",
+			"Content-Type":  "application/json",
+		},
+	})
+	if strings.Contains(desc, "secret-token-123") {
+		t.Errorf("expected Authorization value to be censored, got: %s", desc)
+	}
+	if strings.Contains(desc, "sk-my-secret-key") {
+		t.Errorf("expected X-Api-Key value to be censored, got: %s", desc)
+	}
+	if !strings.Contains(desc, "Authorization: ***") {
+		t.Errorf("expected censored Authorization header, got: %s", desc)
+	}
+	if !strings.Contains(desc, "X-Api-Key: ***") {
+		t.Errorf("expected censored X-Api-Key header, got: %s", desc)
+	}
+	if !strings.Contains(desc, "Content-Type: application/json") {
+		t.Errorf("expected non-sensitive header to be shown, got: %s", desc)
+	}
+}
+
+func Test_BuildToolDescription_FullConfig(t *testing.T) {
+	desc := buildToolDescription(client.Config{
+		BaseURL: "https://api.example.com",
+		DefaultHeaders: map[string]string{
+			"Authorization": "Bearer token",
+			"Content-Type":  "application/json",
+		},
+	})
+	if !strings.Contains(desc, "Base URL: https://api.example.com") {
+		t.Errorf("expected base URL, got: %s", desc)
+	}
+	if !strings.Contains(desc, "Authorization: ***") {
+		t.Errorf("expected censored auth header, got: %s", desc)
+	}
+	if !strings.Contains(desc, "Content-Type: application/json") {
+		t.Errorf("expected content-type header, got: %s", desc)
+	}
+}
+
 func extractText(result *mcp.CallToolResult) string {
 	var texts []string
 	for _, c := range result.Content {

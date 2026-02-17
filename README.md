@@ -1,5 +1,12 @@
 # rest-api-mcp
 
+[![CI](https://github.com/lexandro/rest-api-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/lexandro/rest-api-mcp/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/lexandro/rest-api-mcp)](https://goreportcard.com/report/github.com/lexandro/rest-api-mcp)
+[![Go Reference](https://pkg.go.dev/badge/github.com/lexandro/rest-api-mcp.svg)](https://pkg.go.dev/github.com/lexandro/rest-api-mcp)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![MCP Compatible](https://img.shields.io/badge/MCP-compatible-blue)](https://modelcontextprotocol.io)
+[![Claude Code](https://img.shields.io/badge/Claude_Code-Extension-orange)](https://claude.ai/claude-code)
+
 A lightweight MCP (Model Context Protocol) server that provides a structured `http_request` tool for AI agents. Eliminates the need for fragile `curl` commands that break on Windows due to quoting/escaping issues.
 
 ## Why?

@@ -72,7 +72,7 @@ func main() {
 
 	httpClient := client.NewClient(config)
 	mcpServer := server.New()
-	tools.Register(mcpServer, httpClient)
+	tools.Register(mcpServer, httpClient, config)
 
 	if err := server.Run(mcpServer); err != nil {
 		log.Fatal(err)

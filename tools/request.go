@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -27,11 +28,50 @@ var validMethods = map[string]bool{
 	"PATCH": true, "HEAD": true, "OPTIONS": true,
 }
 
-func Register(mcpServer *mcp.Server, httpClient *client.Client) {
+func Register(mcpServer *mcp.Server, httpClient *client.Client, cfg client.Config) {
 	mcp.AddTool(mcpServer, &mcp.Tool{
 		Name:        "http_request",
-		Description: "Make HTTP requests. Use instead of curl for reliable cross-platform HTTP calls. Supports all methods, headers, body, query params, redirects, and timeout.",
+		Description: buildToolDescription(cfg),
 	}, makeHandler(httpClient))
+}
+
+// sensitiveHeaderNames contains lowercase header names whose values must be censored in the tool description.
+var sensitiveHeaderNames = map[string]bool{
+	"authorization": true,
+	"proxy-authorization": true,
+	"x-api-key": true,
+	"x-auth-token": true,
+}
+
+func censorHeaderValue(name, value string) string {
+	if sensitiveHeaderNames[strings.ToLower(name)] {
+		return "***"
+	}
+	return value
+}
+
+func buildToolDescription(cfg client.Config) string {
+	desc := "Make HTTP requests. Use instead of curl for reliable cross-platform HTTP calls. Supports all methods, headers, body, query params, redirects, and timeout."
+
+	if cfg.BaseURL != "" {
+		desc += fmt.Sprintf(" Base URL: %s — use relative paths like /api/endpoint.", cfg.BaseURL)
+	}
+
+	if len(cfg.DefaultHeaders) > 0 {
+		keys := make([]string, 0, len(cfg.DefaultHeaders))
+		for k := range cfg.DefaultHeaders {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
+		headerParts := make([]string, 0, len(keys))
+		for _, k := range keys {
+			headerParts = append(headerParts, fmt.Sprintf("%s: %s", k, censorHeaderValue(k, cfg.DefaultHeaders[k])))
+		}
+		desc += fmt.Sprintf(" Default headers: %s.", strings.Join(headerParts, ", "))
+	}
+
+	return desc
 }
 
 func makeHandler(httpClient *client.Client) func(context.Context, *mcp.CallToolRequest, HttpRequestInput) (*mcp.CallToolResult, any, error) {
