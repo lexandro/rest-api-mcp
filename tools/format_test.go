@@ -19,8 +19,14 @@ func Test_FormatResponse_BasicSuccess(t *testing.T) {
 
 	result := FormatResponse(resp, false)
 
-	if !strings.HasPrefix(result, "HTTP 200 OK (154ms)") {
+	if !strings.HasPrefix(result, "200 OK") {
 		t.Errorf("unexpected status line, got: %s", result)
+	}
+	if strings.Contains(result, "HTTP ") {
+		t.Errorf("output should not contain 'HTTP ' prefix, got: %s", result)
+	}
+	if strings.Contains(result, "154ms") {
+		t.Errorf("output should not contain duration, got: %s", result)
 	}
 	if !strings.Contains(result, `{"status":"ok"}`) {
 		t.Errorf("body not included, got: %s", result)
@@ -37,8 +43,11 @@ func Test_FormatResponse_EmptyBody(t *testing.T) {
 
 	result := FormatResponse(resp, false)
 
-	if !strings.Contains(result, "(empty body)") {
-		t.Errorf("expected '(empty body)', got: %s", result)
+	if result != "204 No Content" {
+		t.Errorf("expected '204 No Content', got: %q", result)
+	}
+	if strings.Contains(result, "empty body") {
+		t.Errorf("output should not contain body placeholder, got: %s", result)
 	}
 }
 
@@ -84,35 +93,24 @@ func Test_FormatResponse_Truncated(t *testing.T) {
 
 	result := FormatResponse(resp, false)
 
-	if !strings.Contains(result, "[truncated, showing 100 of 5000 bytes]") {
+	if !strings.Contains(result, "[truncated: 100/5000 bytes]") {
 		t.Errorf("expected truncation notice, got: %s", result)
 	}
 }
 
-func Test_FormatResponse_DurationFormat(t *testing.T) {
-	tests := []struct {
-		name     string
-		duration time.Duration
-		want     string
-	}{
-		{"milliseconds", 154 * time.Millisecond, "(154ms)"},
-		{"seconds", 2300 * time.Millisecond, "(2.3s)"},
-		{"one second", 1000 * time.Millisecond, "(1.0s)"},
-		{"sub-second", 999 * time.Millisecond, "(999ms)"},
+func Test_FormatResponse_TruncatedUnknownSize(t *testing.T) {
+	resp := &client.Response{
+		StatusCode:   200,
+		StatusText:   "OK",
+		Body:         []byte(strings.Repeat("x", 100)),
+		Duration:     50 * time.Millisecond,
+		Truncated:    true,
+		OriginalSize: 0,
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			resp := &client.Response{
-				StatusCode: 200,
-				StatusText: "OK",
-				Body:       []byte("ok"),
-				Duration:   tt.duration,
-			}
-			result := FormatResponse(resp, false)
-			if !strings.Contains(result, tt.want) {
-				t.Errorf("expected %q in output, got: %s", tt.want, result)
-			}
-		})
+	result := FormatResponse(resp, false)
+
+	if !strings.Contains(result, "[truncated: 100 bytes shown]") {
+		t.Errorf("expected truncation notice, got: %s", result)
 	}
 }

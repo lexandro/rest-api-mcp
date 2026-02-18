@@ -195,6 +195,10 @@ func (c *Client) ExecuteRequest(ctx context.Context, params RequestParams) (*Res
 		defer cancel()
 	}
 
+	// Mutating the shared httpClient.CheckRedirect is safe here because the MCP
+	// server processes tool calls sequentially (one at a time via stdio transport).
+	// If concurrent dispatch is ever added, this must be replaced with a per-request
+	// derived http.Client to avoid a data race.
 	originalCheckRedirect := c.httpClient.CheckRedirect
 	if !params.FollowRedirects {
 		c.httpClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {

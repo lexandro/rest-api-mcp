@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/lexandro/rest-api-mcp/client"
 )
@@ -29,8 +28,7 @@ var noiseHeaders = map[string]bool{
 func FormatResponse(resp *client.Response, includeHeaders bool) string {
 	var builder strings.Builder
 
-	durationStr := formatDuration(resp.Duration)
-	fmt.Fprintf(&builder, "HTTP %d %s (%s)", resp.StatusCode, resp.StatusText, durationStr)
+	fmt.Fprintf(&builder, "%d %s", resp.StatusCode, resp.StatusText)
 
 	if includeHeaders && len(resp.Headers) > 0 {
 		builder.WriteString("\n")
@@ -48,28 +46,19 @@ func FormatResponse(resp *client.Response, includeHeaders bool) string {
 		}
 	}
 
-	builder.WriteString("\n\n")
-	if len(resp.Body) == 0 {
-		builder.WriteString("(empty body)")
-	} else {
+	if len(resp.Body) > 0 {
+		builder.WriteString("\n\n")
 		builder.Write(resp.Body)
 	}
 
 	if resp.Truncated {
 		shown := len(resp.Body)
 		if resp.OriginalSize > 0 {
-			fmt.Fprintf(&builder, "\n[truncated, showing %d of %d bytes]", shown, resp.OriginalSize)
+			fmt.Fprintf(&builder, "\n[truncated: %d/%d bytes]", shown, resp.OriginalSize)
 		} else {
-			fmt.Fprintf(&builder, "\n[truncated, showing first %d bytes]", shown)
+			fmt.Fprintf(&builder, "\n[truncated: %d bytes shown]", shown)
 		}
 	}
 
 	return builder.String()
-}
-
-func formatDuration(d time.Duration) string {
-	if d < time.Second {
-		return fmt.Sprintf("%dms", d.Milliseconds())
-	}
-	return fmt.Sprintf("%.1fs", d.Seconds())
 }

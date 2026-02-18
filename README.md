@@ -139,7 +139,7 @@ A single, versatile tool for making HTTP requests.
 Compact, token-efficient output designed to minimize context window usage:
 
 ```
-HTTP 200 OK (154ms)
+200 OK
 
 {"id": 1, "name": "example"}
 ```
@@ -147,7 +147,7 @@ HTTP 200 OK (154ms)
 With `includeResponseHeaders: true`:
 
 ```
-HTTP 200 OK (154ms)
+200 OK
 
 Content-Type: application/json
 X-Request-Id: abc123
@@ -158,17 +158,17 @@ X-Request-Id: abc123
 Large responses are automatically truncated:
 
 ```
-HTTP 200 OK (1.2s)
+200 OK
 
 {"data": [...first 50KB...]}
-[truncated, showing 51200 of 245891 bytes]
+[truncated: 51200/245891 bytes]
 ```
 
 ### Token Efficiency
 
 - **No response headers by default** — saves ~200-500 tokens per request
 - **50KB response limit** — prevents dumping huge payloads into context
-- **Compact status line** — `HTTP 200 OK (154ms)` instead of verbose curl output
+- **Minimal status line** — `200 OK` instead of verbose curl output, no duration overhead
 - **No request echo** — the agent already knows what it sent
 - **Error as text** — `Request failed: connection refused` not a stack trace
 
