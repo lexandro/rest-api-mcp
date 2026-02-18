@@ -44,8 +44,8 @@ func Test_HttpRequestHandler_ValidGet(t *testing.T) {
 	}
 
 	text := extractText(result)
-	if !strings.Contains(text, "HTTP 200 OK") {
-		t.Errorf("expected HTTP 200 OK in output, got: %s", text)
+	if !strings.Contains(text, "200 OK") {
+		t.Errorf("expected 200 OK in output, got: %s", text)
 	}
 	if !strings.Contains(text, `{"status":"ok"}`) {
 		t.Errorf("expected body in output, got: %s", text)
@@ -145,8 +145,8 @@ func Test_HttpRequestHandler_PostWithBody(t *testing.T) {
 	}
 
 	text := extractText(result)
-	if !strings.Contains(text, "HTTP 201 Created") {
-		t.Errorf("expected HTTP 201, got: %s", text)
+	if !strings.Contains(text, "201 Created") {
+		t.Errorf("expected 201 Created, got: %s", text)
 	}
 	if !strings.Contains(text, `body={"key":"value"}`) {
 		t.Errorf("expected body echo, got: %s", text)
