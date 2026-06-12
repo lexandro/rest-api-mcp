@@ -21,7 +21,7 @@ type HttpRequestInput struct {
 	Timeout                string            `json:"timeout,omitempty" jsonschema:"Per-request timeout (e.g. 10s, 500ms)"`
 	FollowRedirects        *bool             `json:"followRedirects,omitempty" jsonschema:"Follow HTTP redirects (default: true)"`
 	IncludeResponseHeaders *bool             `json:"includeResponseHeaders,omitempty" jsonschema:"Include response headers in output (default: false)"`
-	JSONFilter             string            `json:"jsonFilter,omitempty" jsonschema:"GJSON path to extract from a JSON response body, e.g. name, items.#.id, or {name,id} for multiple fields — use on large payloads to save tokens"`
+	JSONFilter             string            `json:"jsonFilter,omitempty" jsonschema:"GJSON path to extract from a JSON response body (JSON responses only), e.g. name, items.#.id, or {name,id} for multiple fields — use on large payloads to save tokens"`
 	SaveTo                 string            `json:"saveTo,omitempty" jsonschema:"Write the response body to this file path instead of returning it inline — use for binary or large responses"`
 	MaxResponseBytes       int64             `json:"maxResponseBytes,omitempty" jsonschema:"Per-request response size limit in bytes (overrides server default)"`
 	Files                  map[string]string `json:"files,omitempty" jsonschema:"Send multipart/form-data: form field name -> local file path (mutually exclusive with body)"`
@@ -145,7 +145,6 @@ func makeHandler(httpClient *client.Client) func(context.Context, *mcp.CallToolR
 			QueryParams:     input.QueryParams,
 			Timeout:         timeout,
 			FollowRedirects: followRedirects,
-			IncludeHeaders:  includeHeaders,
 			SaveTo:          input.SaveTo,
 			MaxResponseSize: input.MaxResponseBytes,
 			Files:           input.Files,

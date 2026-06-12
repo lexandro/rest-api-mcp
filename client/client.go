@@ -9,6 +9,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -42,7 +43,6 @@ type RequestParams struct {
 	QueryParams     map[string]string
 	Timeout         time.Duration
 	FollowRedirects bool
-	IncludeHeaders  bool
 	SaveTo          string            // write response body to this file instead of returning it
 	MaxResponseSize int64             // per-request override; 0 means use the client default
 	Files           map[string]string // multipart uploads: form field name -> local file path
@@ -156,19 +156,29 @@ func readResponseBody(resp *http.Response, maxResponseSize int64) ([]byte, bool,
 	return body, truncated, originalSize, nil
 }
 
+// saveResponseBody streams the body to a temp file and renames it into place,
+// so a mid-stream failure never leaves a partial file at the target path.
 func saveResponseBody(resp *http.Response, path string) (int64, error) {
 	defer resp.Body.Close()
-	file, err := os.Create(path)
+	tmpFile, err := os.CreateTemp(filepath.Dir(path), ".rest-api-mcp-*.tmp")
 	if err != nil {
-		return 0, fmt.Errorf("creating file %s: %w", path, err)
+		return 0, fmt.Errorf("creating temp file for %s: %w", path, err)
 	}
-	written, copyErr := io.Copy(file, resp.Body)
-	closeErr := file.Close()
+	tmpPath := tmpFile.Name()
+
+	written, copyErr := io.Copy(tmpFile, resp.Body)
+	closeErr := tmpFile.Close()
 	if copyErr != nil {
+		os.Remove(tmpPath)
 		return 0, fmt.Errorf("writing response to %s: %w", path, copyErr)
 	}
 	if closeErr != nil {
-		return 0, fmt.Errorf("closing %s: %w", path, closeErr)
+		os.Remove(tmpPath)
+		return 0, fmt.Errorf("closing %s: %w", tmpPath, closeErr)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath)
+		return 0, fmt.Errorf("renaming %s to %s: %w", tmpPath, path, err)
 	}
 	return written, nil
 }

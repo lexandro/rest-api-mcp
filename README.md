@@ -102,7 +102,7 @@ Pre-built binaries for Windows, macOS, and Linux are available on the [Releases]
 
 ### Build from source
 
-Requires Go 1.22+.
+Requires Go 1.25+.
 
 ```bash
 git clone https://github.com/lexandro/rest-api-mcp.git

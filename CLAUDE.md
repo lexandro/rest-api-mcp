@@ -3,9 +3,10 @@
 MCP server providing a structured HTTP request tool for AI agents. Replaces fragile curl commands with a cross-platform, token-efficient `http_request` tool.
 
 ## Tech Stack
-- Language: Go 1.22+
+- Language: Go 1.25+
 - MCP SDK: github.com/modelcontextprotocol/go-sdk
 - HTTP: net/http standard library (no external HTTP client dependencies)
+- JSON field extraction: github.com/tidwall/gjson (jsonFilter tool param)
 
 ## Build & Test
 - Build: `go build -o rest-api-mcp.exe .`
