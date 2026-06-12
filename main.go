@@ -36,9 +36,7 @@ func main() {
 		retry           int
 		retryDelay      time.Duration
 		insecure        bool
-		logEnabled      bool
-		logFile         string
-		logLevel        string
+		cookieJar       bool
 	)
 
 	flag.StringVar(&baseURL, "base-url", "", "Base URL prepended to relative URLs")
@@ -49,15 +47,9 @@ func main() {
 	flag.IntVar(&retry, "retry", 0, "Number of retries for failed requests")
 	flag.DurationVar(&retryDelay, "retry-delay", 1000*time.Millisecond, "Delay between retries")
 	flag.BoolVar(&insecure, "insecure", false, "Skip TLS certificate verification")
-	flag.BoolVar(&logEnabled, "log-enabled", false, "Enable logging")
-	flag.StringVar(&logFile, "log-file", "", "Log file path (stderr if empty)")
-	flag.StringVar(&logLevel, "log-level", "info", "Log level (debug/info/warn/error)")
+	flag.BoolVar(&cookieJar, "cookie-jar", false, "Enable in-memory cookie jar (persists cookies across requests for session flows)")
 
 	flag.Parse()
-
-	_ = logEnabled
-	_ = logFile
-	_ = logLevel
 
 	config := client.Config{
 		BaseURL:         baseURL,
@@ -68,6 +60,7 @@ func main() {
 		RetryCount:      retry,
 		RetryDelay:      retryDelay,
 		InsecureTLS:     insecure,
+		EnableCookieJar: cookieJar,
 	}
 
 	httpClient := client.NewClient(config)

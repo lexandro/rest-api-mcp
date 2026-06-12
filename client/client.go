@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
@@ -20,6 +22,7 @@ type Config struct {
 	RetryCount      int
 	RetryDelay      time.Duration
 	InsecureTLS     bool
+	EnableCookieJar bool
 }
 
 type Client struct {
@@ -40,16 +43,23 @@ type RequestParams struct {
 	Timeout         time.Duration
 	FollowRedirects bool
 	IncludeHeaders  bool
+	SaveTo          string            // write response body to this file instead of returning it
+	MaxResponseSize int64             // per-request override; 0 means use the client default
+	Files           map[string]string // multipart uploads: form field name -> local file path
+	FormFields      map[string]string // multipart text fields, sent alongside Files
 }
 
 type Response struct {
 	StatusCode   int
 	StatusText   string
 	Headers      http.Header
+	ContentType  string
 	Body         []byte
 	Duration     time.Duration
 	Truncated    bool
 	OriginalSize int64
+	SavedPath    string
+	SavedSize    int64
 }
 
 // ParseHeaders splits raw "Key: Value" strings into a map.
@@ -83,6 +93,12 @@ func NewClient(config Config) *Client {
 		Timeout:   config.Timeout,
 	}
 
+	if config.EnableCookieJar {
+		if jar, err := cookiejar.New(nil); err == nil {
+			httpClient.Jar = jar
+		}
+	}
+
 	maxResponseSize := config.MaxResponseSize
 	if maxResponseSize <= 0 {
 		maxResponseSize = 51200
@@ -100,8 +116,8 @@ func NewClient(config Config) *Client {
 
 func buildRequestURL(baseURL string, params RequestParams) (string, error) {
 	requestURL := params.URL
-	if strings.HasPrefix(requestURL, "/") && baseURL != "" {
-		requestURL = strings.TrimRight(baseURL, "/") + requestURL
+	if baseURL != "" && !strings.Contains(requestURL, "://") {
+		requestURL = strings.TrimRight(baseURL, "/") + "/" + strings.TrimLeft(requestURL, "/")
 	}
 
 	if len(params.QueryParams) > 0 {
@@ -140,9 +156,35 @@ func readResponseBody(resp *http.Response, maxResponseSize int64) ([]byte, bool,
 	return body, truncated, originalSize, nil
 }
 
+func saveResponseBody(resp *http.Response, path string) (int64, error) {
+	defer resp.Body.Close()
+	file, err := os.Create(path)
+	if err != nil {
+		return 0, fmt.Errorf("creating file %s: %w", path, err)
+	}
+	written, copyErr := io.Copy(file, resp.Body)
+	closeErr := file.Close()
+	if copyErr != nil {
+		return 0, fmt.Errorf("writing response to %s: %w", path, copyErr)
+	}
+	if closeErr != nil {
+		return 0, fmt.Errorf("closing %s: %w", path, closeErr)
+	}
+	return written, nil
+}
+
 func (c *Client) doSingleAttempt(ctx context.Context, method, requestURL string, params RequestParams) (*Response, error) {
 	var bodyReader io.Reader
-	if params.Body != "" {
+	var multipartContentType string
+	if len(params.Files) > 0 || len(params.FormFields) > 0 {
+		// Rebuilt on every attempt because the reader is consumed by the request.
+		body, contentType, err := buildMultipartBody(params.Files, params.FormFields)
+		if err != nil {
+			return nil, err
+		}
+		bodyReader = body
+		multipartContentType = contentType
+	} else if params.Body != "" {
 		bodyReader = strings.NewReader(params.Body)
 	}
 
@@ -157,6 +199,9 @@ func (c *Client) doSingleAttempt(ctx context.Context, method, requestURL string,
 	for key, value := range params.Headers {
 		req.Header.Set(key, value)
 	}
+	if multipartContentType != "" {
+		req.Header.Set("Content-Type", multipartContentType)
+	}
 
 	start := time.Now()
 	resp, err := c.httpClient.Do(req)
@@ -166,20 +211,39 @@ func (c *Client) doSingleAttempt(ctx context.Context, method, requestURL string,
 		return nil, fmt.Errorf("executing %s %s: %w", method, requestURL, err)
 	}
 
-	body, truncated, originalSize, readErr := readResponseBody(resp, c.maxResponseSize)
+	response := &Response{
+		StatusCode:  resp.StatusCode,
+		StatusText:  http.StatusText(resp.StatusCode),
+		Headers:     resp.Header,
+		ContentType: resp.Header.Get("Content-Type"),
+		Duration:    duration,
+	}
+
+	// Error responses (4xx/5xx) are small and informative — return them inline
+	// even when SaveTo is set, so the agent sees what went wrong.
+	if params.SaveTo != "" && resp.StatusCode < 400 {
+		savedSize, saveErr := saveResponseBody(resp, params.SaveTo)
+		if saveErr != nil {
+			return nil, saveErr
+		}
+		response.SavedPath = params.SaveTo
+		response.SavedSize = savedSize
+		return response, nil
+	}
+
+	maxResponseSize := c.maxResponseSize
+	if params.MaxResponseSize > 0 {
+		maxResponseSize = params.MaxResponseSize
+	}
+	body, truncated, originalSize, readErr := readResponseBody(resp, maxResponseSize)
 	if readErr != nil {
 		return nil, readErr
 	}
 
-	return &Response{
-		StatusCode:   resp.StatusCode,
-		StatusText:   http.StatusText(resp.StatusCode),
-		Headers:      resp.Header,
-		Body:         body,
-		Duration:     duration,
-		Truncated:    truncated,
-		OriginalSize: originalSize,
-	}, nil
+	response.Body = body
+	response.Truncated = truncated
+	response.OriginalSize = originalSize
+	return response, nil
 }
 
 func (c *Client) ExecuteRequest(ctx context.Context, params RequestParams) (*Response, error) {
@@ -215,7 +279,17 @@ func (c *Client) ExecuteRequest(ctx context.Context, params RequestParams) (*Res
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if attempt > 0 {
-			time.Sleep(c.retryDelay)
+			select {
+			case <-requestCtx.Done():
+				if lastResponse != nil {
+					return lastResponse, nil
+				}
+				if lastErr != nil {
+					return nil, lastErr
+				}
+				return nil, requestCtx.Err()
+			case <-time.After(c.retryDelay):
+			}
 		}
 
 		response, attemptErr := c.doSingleAttempt(requestCtx, params.Method, requestURL, params)

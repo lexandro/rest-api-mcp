@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -237,6 +239,197 @@ func Test_BuildToolDescription_FullConfig(t *testing.T) {
 	}
 	if !strings.Contains(desc, "Content-Type: application/json") {
 		t.Errorf("expected content-type header, got: %s", desc)
+	}
+}
+
+func Test_HttpRequestHandler_BodyAndFilesMutuallyExclusive(t *testing.T) {
+	c := newTestClient("")
+	handler := makeHandler(c)
+
+	result, _, err := handler(context.Background(), nil, HttpRequestInput{
+		Method: "POST",
+		URL:    "http://example.com",
+		Body:   `{"a":1}`,
+		Files:  map[string]string{"file": "C:\\temp\\x.txt"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Error("expected IsError for body+files")
+	}
+	if !strings.Contains(extractText(result), "mutually exclusive") {
+		t.Errorf("expected mutual exclusion error, got: %s", extractText(result))
+	}
+}
+
+func Test_HttpRequestHandler_JSONFilter(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"name":"widget","huge":"` + strings.Repeat("x", 500) + `"}`))
+	}))
+	defer server.Close()
+
+	c := newTestClient(server.URL)
+	handler := makeHandler(c)
+
+	result, _, err := handler(context.Background(), nil, HttpRequestInput{
+		Method:     "GET",
+		URL:        server.URL,
+		JSONFilter: "name",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	text := extractText(result)
+	if !strings.Contains(text, `"widget"`) {
+		t.Errorf("expected filtered field, got: %s", text)
+	}
+	if strings.Contains(text, "xxxx") {
+		t.Errorf("expected huge field to be filtered out, got: %s", text)
+	}
+}
+
+func Test_HttpRequestHandler_SaveTo(t *testing.T) {
+	payload := strings.Repeat("data", 1000)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Write([]byte(payload))
+	}))
+	defer server.Close()
+
+	savePath := filepath.Join(t.TempDir(), "download.bin")
+	c := newTestClient(server.URL)
+	handler := makeHandler(c)
+
+	result, _, err := handler(context.Background(), nil, HttpRequestInput{
+		Method: "GET",
+		URL:    server.URL,
+		SaveTo: savePath,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	text := extractText(result)
+	if !strings.Contains(text, "[saved to "+savePath) {
+		t.Errorf("expected saved-file summary, got: %s", text)
+	}
+	if strings.Contains(text, "datadata") {
+		t.Errorf("expected body to be omitted from output, got: %s", text)
+	}
+
+	saved, readErr := os.ReadFile(savePath)
+	if readErr != nil {
+		t.Fatalf("reading saved file: %v", readErr)
+	}
+	if string(saved) != payload {
+		t.Errorf("saved file content mismatch: got %d bytes, want %d", len(saved), len(payload))
+	}
+}
+
+func Test_HttpRequestHandler_SaveToErrorResponseStaysInline(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(404)
+		w.Write([]byte(`{"error":"not found"}`))
+	}))
+	defer server.Close()
+
+	savePath := filepath.Join(t.TempDir(), "should-not-exist.bin")
+	c := newTestClient(server.URL)
+	handler := makeHandler(c)
+
+	result, _, err := handler(context.Background(), nil, HttpRequestInput{
+		Method: "GET",
+		URL:    server.URL,
+		SaveTo: savePath,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	text := extractText(result)
+	if !strings.Contains(text, "404 Not Found") || !strings.Contains(text, "not found") {
+		t.Errorf("expected inline error body, got: %s", text)
+	}
+	if _, statErr := os.Stat(savePath); statErr == nil {
+		t.Error("error response must not be written to the save file")
+	}
+}
+
+func Test_HttpRequestHandler_MultipartUpload(t *testing.T) {
+	uploadPath := filepath.Join(t.TempDir(), "upload.txt")
+	if err := os.WriteFile(uploadPath, []byte("file-content"), 0o644); err != nil {
+		t.Fatalf("writing upload fixture: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			w.WriteHeader(400)
+			fmt.Fprintf(w, "parse error: %s", err)
+			return
+		}
+		file, header, err := r.FormFile("document")
+		if err != nil {
+			w.WriteHeader(400)
+			fmt.Fprintf(w, "form file error: %s", err)
+			return
+		}
+		defer file.Close()
+		content, _ := io.ReadAll(file)
+		fmt.Fprintf(w, "field=%s filename=%s content=%s", r.FormValue("note"), header.Filename, content)
+	}))
+	defer server.Close()
+
+	c := newTestClient(server.URL)
+	handler := makeHandler(c)
+
+	result, _, err := handler(context.Background(), nil, HttpRequestInput{
+		Method:     "POST",
+		URL:        server.URL,
+		Files:      map[string]string{"document": uploadPath},
+		FormFields: map[string]string{"note": "hello"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error: %+v", result.Content)
+	}
+	text := extractText(result)
+	if !strings.Contains(text, "field=hello") {
+		t.Errorf("expected form field echo, got: %s", text)
+	}
+	if !strings.Contains(text, "filename=upload.txt") {
+		t.Errorf("expected filename echo, got: %s", text)
+	}
+	if !strings.Contains(text, "content=file-content") {
+		t.Errorf("expected file content echo, got: %s", text)
+	}
+}
+
+func Test_HttpRequestHandler_MaxResponseBytesOverride(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(strings.Repeat("y", 500)))
+	}))
+	defer server.Close()
+
+	// Client default is 1024 bytes; the per-request override shrinks it to 100.
+	c := newTestClient(server.URL)
+	handler := makeHandler(c)
+
+	result, _, err := handler(context.Background(), nil, HttpRequestInput{
+		Method:           "GET",
+		URL:              server.URL,
+		MaxResponseBytes: 100,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	text := extractText(result)
+	if !strings.Contains(text, "[truncated:") {
+		t.Errorf("expected truncation with per-request limit, got: %s", text)
+	}
+	if strings.Contains(text, strings.Repeat("y", 200)) {
+		t.Errorf("expected body capped at 100 bytes, got %d-char output", len(text))
 	}
 }
 

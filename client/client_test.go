@@ -168,6 +168,140 @@ func Test_ExecuteRequest_RelativeURL(t *testing.T) {
 	}
 }
 
+func Test_ExecuteRequest_RelativeURLWithoutLeadingSlash(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "path=%s", r.URL.Path)
+	}))
+	defer server.Close()
+
+	c := NewClient(Config{
+		BaseURL:         server.URL,
+		Timeout:         5 * time.Second,
+		MaxResponseSize: 1024,
+	})
+
+	resp, err := c.ExecuteRequest(context.Background(), RequestParams{
+		Method:          "GET",
+		URL:             "api/test",
+		FollowRedirects: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(string(resp.Body), "path=/api/test") {
+		t.Errorf("relative URL without leading slash not resolved, got: %s", string(resp.Body))
+	}
+}
+
+func Test_ExecuteRequest_CookieJar(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/login" {
+			http.SetCookie(w, &http.Cookie{Name: "session", Value: "abc123"})
+			w.WriteHeader(200)
+			return
+		}
+		cookie, err := r.Cookie("session")
+		if err != nil {
+			fmt.Fprint(w, "no-cookie")
+			return
+		}
+		fmt.Fprintf(w, "session=%s", cookie.Value)
+	}))
+	defer server.Close()
+
+	c := NewClient(Config{
+		Timeout:         5 * time.Second,
+		MaxResponseSize: 1024,
+		EnableCookieJar: true,
+	})
+
+	if _, err := c.ExecuteRequest(context.Background(), RequestParams{
+		Method:          "GET",
+		URL:             server.URL + "/login",
+		FollowRedirects: true,
+	}); err != nil {
+		t.Fatalf("login request failed: %v", err)
+	}
+
+	resp, err := c.ExecuteRequest(context.Background(), RequestParams{
+		Method:          "GET",
+		URL:             server.URL + "/profile",
+		FollowRedirects: true,
+	})
+	if err != nil {
+		t.Fatalf("profile request failed: %v", err)
+	}
+	if string(resp.Body) != "session=abc123" {
+		t.Errorf("cookie not persisted across requests, got: %s", string(resp.Body))
+	}
+}
+
+func Test_ExecuteRequest_NoCookieJarByDefault(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/login" {
+			http.SetCookie(w, &http.Cookie{Name: "session", Value: "abc123"})
+			w.WriteHeader(200)
+			return
+		}
+		if _, err := r.Cookie("session"); err != nil {
+			fmt.Fprint(w, "no-cookie")
+			return
+		}
+		fmt.Fprint(w, "has-cookie")
+	}))
+	defer server.Close()
+
+	c := NewClient(Config{
+		Timeout:         5 * time.Second,
+		MaxResponseSize: 1024,
+	})
+
+	if _, err := c.ExecuteRequest(context.Background(), RequestParams{
+		Method:          "GET",
+		URL:             server.URL + "/login",
+		FollowRedirects: true,
+	}); err != nil {
+		t.Fatalf("login request failed: %v", err)
+	}
+
+	resp, err := c.ExecuteRequest(context.Background(), RequestParams{
+		Method:          "GET",
+		URL:             server.URL + "/profile",
+		FollowRedirects: true,
+	})
+	if err != nil {
+		t.Fatalf("profile request failed: %v", err)
+	}
+	if string(resp.Body) != "no-cookie" {
+		t.Errorf("cookies must not persist without the jar enabled, got: %s", string(resp.Body))
+	}
+}
+
+func Test_ExecuteRequest_ContentTypeCaptured(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+
+	c := NewClient(Config{
+		Timeout:         5 * time.Second,
+		MaxResponseSize: 1024,
+	})
+
+	resp, err := c.ExecuteRequest(context.Background(), RequestParams{
+		Method:          "GET",
+		URL:             server.URL,
+		FollowRedirects: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.ContentType != "application/json; charset=utf-8" {
+		t.Errorf("expected content type to be captured, got: %q", resp.ContentType)
+	}
+}
+
 func Test_ExecuteRequest_AbsoluteURL(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "ok")
